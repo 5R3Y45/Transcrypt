@@ -90,36 +90,12 @@
   </div>
 
 
-  <script>
+  <script type="module">
+import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "./firebase.js"
 
-// firebase.js
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "your-app.firebaseapp.com",
-  projectId: "your-app-id",
-  storageBucket: "your-app.appspot.com",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot };
-
-// Required libraries: xlsx.full.min.js, docx.umd.min.js, html2pdf.bundle.min.js
-
-const transactions = JSON.parse(localStorage.getItem("transactions") || "[]")
 let currentFilter = "all"
 
-function saveToLocalStorage() {
-  localStorage.setItem("transactions", JSON.stringify(transactions))
-}
-
-function addTransactionToTable(transaction) {
+function addTransactionToTable(transaction, id) {
   const tbody = document.getElementById("transactionTableBody")
   const tr = document.createElement("tr")
   tr.innerHTML = `
@@ -129,26 +105,26 @@ function addTransactionToTable(transaction) {
     <td class="p-2 border">${transaction.type}</td>
     <td class="p-2 border text-right">${transaction.type === "credit" ? "+" : "-"}AED ${Number(transaction.amount).toFixed(2)}</td>
     <td class="p-2 border text-center">
-      <button onclick="deleteTransaction('${transaction.id}')" class="text-red-500">🗑</button>
+      <button onclick="deleteTransaction(\"${id}\")" class="text-red-500">🗑</button>
     </td>
   `
   tbody.appendChild(tr)
 }
 
-function renderTable() {
+function renderTable(transactions) {
   document.getElementById("transactionTableBody").innerHTML = ""
-  const filtered = getFilteredTransactions()
-  filtered.forEach(addTransactionToTable)
+  const filtered = getFilteredTransactions(transactions)
+  filtered.forEach(([id, t]) => addTransactionToTable(t, id))
 }
 
-function getFilteredTransactions() {
+function getFilteredTransactions(transactions) {
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const weekStart = new Date(today.getTime() - today.getDay() * 86400000)
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const yearStart = new Date(now.getFullYear(), 0, 1)
 
-  return transactions.filter(t => {
+  return transactions.filter(([_, t]) => {
     const tDate = new Date(t.date)
     switch (currentFilter) {
       case "today": return tDate >= today
@@ -175,16 +151,11 @@ function getFilename(extension) {
   return `Moonwhite ${label} Transaction Statement.${extension}`
 }
 
-function deleteTransaction(id) {
-  const index = transactions.findIndex(t => t.id === id)
-  if (index !== -1) {
-    transactions.splice(index, 1)
-    saveToLocalStorage()
-    renderTable()
-  }
+window.deleteTransaction = async function (id) {
+  await deleteDoc(doc(db, "transactions", id))
 }
 
-document.getElementById("transactionForm").addEventListener("submit", (e) => {
+document.getElementById("transactionForm").addEventListener("submit", async (e) => {
   e.preventDefault()
   const date = document.getElementById("date").value
   const description = document.getElementById("description").value
@@ -198,7 +169,6 @@ document.getElementById("transactionForm").addEventListener("submit", (e) => {
   }
 
   const newTransaction = {
-    id: Date.now().toString(),
     date,
     description,
     paidToFrom,
@@ -206,22 +176,23 @@ document.getElementById("transactionForm").addEventListener("submit", (e) => {
     type,
   }
 
-  transactions.push(newTransaction)
-  saveToLocalStorage()
-  renderTable()
+  await addDoc(collection(db, "transactions"), newTransaction)
   e.target.reset()
 })
 
 document.querySelectorAll(".filter-btn").forEach((btn) =>
   btn.addEventListener("click", () => {
     currentFilter = btn.dataset.filter
-    renderTable()
+    onSnapshot(collection(db, "transactions"), (snapshot) => {
+      const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
+      renderTable(allTransactions)
+    })
   })
 )
 
 // Export to TXT
-document.getElementById("exportTxt").addEventListener("click", () => {
-  const lines = getFilteredTransactions().map(t =>
+function exportTxt(transactions) {
+  const lines = getFilteredTransactions(transactions).map(([_, t]) =>
     `${t.date} | ${t.description} | ${t.paidToFrom} | ${t.type.toUpperCase()} | AED ${Number(t.amount).toFixed(2)}`
   )
   const blob = new Blob([lines.join("\n")], { type: "text/plain" })
@@ -230,12 +201,19 @@ document.getElementById("exportTxt").addEventListener("click", () => {
   a.download = getFilename("txt")
   a.click()
   URL.revokeObjectURL(a.href)
+}
+
+document.getElementById("exportTxt").addEventListener("click", () => {
+  getDocs(collection(db, "transactions")).then(snapshot => {
+    const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
+    exportTxt(allTransactions)
+  })
 })
 
 // Export to Excel
-document.getElementById("exportExcel").addEventListener("click", () => {
+function exportExcel(transactions) {
   const wsData = [["Date", "Description", "Paid To/From", "Type", "Amount (AED)"]]
-  getFilteredTransactions().forEach(t => {
+  getFilteredTransactions(transactions).forEach(([_, t]) => {
     wsData.push([
       t.date,
       t.description,
@@ -248,13 +226,22 @@ document.getElementById("exportExcel").addEventListener("click", () => {
   const ws = XLSX.utils.aoa_to_sheet(wsData)
   XLSX.utils.book_append_sheet(wb, ws, "Transactions")
   XLSX.writeFile(wb, getFilename("xlsx"))
+}
+
+document.getElementById("exportExcel").addEventListener("click", () => {
+  getDocs(collection(db, "transactions")).then(snapshot => {
+    const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
+    exportExcel(allTransactions)
+  })
 })
 
+// Initial render with real-time updates
+onSnapshot(collection(db, "transactions"), (snapshot) => {
+  const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
+  renderTable(allTransactions)
+})
+</script>
 
-// Initial render
-renderTable()
-
-  </script>
 <!-- SheetJS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
