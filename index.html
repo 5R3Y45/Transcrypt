@@ -90,152 +90,150 @@
   </div>
 
 
- <script type="module">
-import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "./firebase.js"
+<script type="module">
+  import { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "./firebase.js"
 
-document.addEventListener("DOMContentLoaded", () => {
-  let currentFilter = "all"
+  document.addEventListener("DOMContentLoaded", () => {
+    let currentFilter = "all"
 
-  function addTransactionToTable(transaction, id) {
-    const tbody = document.getElementById("transactionTableBody")
-    const tr = document.createElement("tr")
-    tr.innerHTML = `
-      <td class="p-2 border">${transaction.date}</td>
-      <td class="p-2 border">${transaction.description}</td>
-      <td class="p-2 border">${transaction.paidToFrom}</td>
-      <td class="p-2 border">${transaction.type}</td>
-      <td class="p-2 border text-right">${transaction.type === "credit" ? "+" : "-"}AED ${Number(transaction.amount).toFixed(2)}</td>
-      <td class="p-2 border text-center">
-        <button onclick="deleteTransaction('${id}')" class="text-red-500">🗑</button>
-      </td>
-    `
-    tbody.appendChild(tr)
-  }
+    function addTransactionToTable(transaction, id) {
+      const tbody = document.getElementById("transactionTableBody")
+      const tr = document.createElement("tr")
+      tr.innerHTML = `
+        <td class="p-2 border">${transaction.date}</td>
+        <td class="p-2 border">${transaction.description}</td>
+        <td class="p-2 border">${transaction.paidToFrom}</td>
+        <td class="p-2 border">${transaction.type}</td>
+        <td class="p-2 border text-right">${transaction.type === "credit" ? "+" : "-"}AED ${Number(transaction.amount).toFixed(2)}</td>
+        <td class="p-2 border text-center">
+          <button onclick="deleteTransaction('${id}')" class="text-red-500">🗑</button>
+        </td>
+      `
+      tbody.appendChild(tr)
+    }
 
-  function renderTable(transactions) {
-    document.getElementById("transactionTableBody").innerHTML = ""
-    const filtered = getFilteredTransactions(transactions)
-    filtered.forEach(([id, t]) => addTransactionToTable(t, id))
-  }
+    function renderTable(transactions) {
+      document.getElementById("transactionTableBody").innerHTML = ""
+      const filtered = getFilteredTransactions(transactions)
+      filtered.forEach(([id, t]) => addTransactionToTable(t, id))
+    }
 
-  function getFilteredTransactions(transactions) {
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const weekStart = new Date(today.getTime() - today.getDay() * 86400000)
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const yearStart = new Date(now.getFullYear(), 0, 1)
+    function getFilteredTransactions(transactions) {
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const weekStart = new Date(today.getTime() - today.getDay() * 86400000)
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      const yearStart = new Date(now.getFullYear(), 0, 1)
 
-    return transactions.filter(([_, t]) => {
-      const tDate = new Date(t.date)
-      switch (currentFilter) {
-        case "today": return tDate >= today
-        case "week": return tDate >= weekStart
-        case "month": return tDate >= monthStart
-        case "year": return tDate >= yearStart
-        default: return true
+      return transactions.filter(([_, t]) => {
+        const tDate = new Date(t.date)
+        switch (currentFilter) {
+          case "today": return tDate >= today
+          case "week": return tDate >= weekStart
+          case "month": return tDate >= monthStart
+          case "year": return tDate >= yearStart
+          default: return true
+        }
+      })
+    }
+
+    function getFilterLabel(filter) {
+      switch (filter) {
+        case "today": return "Today"
+        case "week": return "This Week"
+        case "month": return "This Month"
+        case "year": return "This Year"
+        default: return "All"
       }
+    }
+
+    function getFilename(extension) {
+      const label = getFilterLabel(currentFilter || "all")
+      return `Moonwhite ${label} Transaction Statement.${extension}`
+    }
+
+    window.deleteTransaction = async function (id) {
+      await deleteDoc(doc(db, "transactions", id))
+    }
+
+    document.getElementById("transactionForm").addEventListener("submit", async (e) => {
+      e.preventDefault()
+      const date = document.getElementById("date").value
+      const description = document.getElementById("description").value
+      const paidToFrom = document.getElementById("paidToFrom").value
+      const amount = document.getElementById("amount").value
+      const type = document.getElementById("type").value
+
+      if (!date || !description || !paidToFrom || !amount || !type) {
+        alert("Please fill all fields")
+        return
+      }
+
+      const newTransaction = { date, description, paidToFrom, amount, type }
+
+      await addDoc(collection(db, "transactions"), newTransaction)
+      e.target.reset()
     })
-  }
 
-  function getFilterLabel(filter) {
-    switch (filter) {
-      case "today": return "Today"
-      case "week": return "This Week"
-      case "month": return "This Month"
-      case "year": return "This Year"
-      default: return "All"
-    }
-  }
+    document.querySelectorAll(".filter-btn").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        currentFilter = btn.dataset.filter
+        onSnapshot(collection(db, "transactions"), (snapshot) => {
+          const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
+          renderTable(allTransactions)
+        })
+      })
+    )
 
-  function getFilename(extension) {
-    const label = getFilterLabel(currentFilter || "all")
-    return `Moonwhite ${label} Transaction Statement.${extension}`
-  }
-
-  window.deleteTransaction = async function (id) {
-    await deleteDoc(doc(db, "transactions", id))
-  }
-
-  document.getElementById("transactionForm").addEventListener("submit", async (e) => {
-    e.preventDefault()
-
-    const date = document.getElementById("date").value
-    const description = document.getElementById("description").value
-    const paidToFrom = document.getElementById("paidToFrom").value
-    const amount = document.getElementById("amount").value
-    const type = document.getElementById("type").value
-
-    if (!date || !description || !paidToFrom || !amount || !type) {
-      alert("Please fill all fields")
-      return
+    function exportTxt(transactions) {
+      const lines = getFilteredTransactions(transactions).map(([_, t]) =>
+        `${t.date} | ${t.description} | ${t.paidToFrom} | ${t.type.toUpperCase()} | AED ${Number(t.amount).toFixed(2)}`
+      )
+      const blob = new Blob([lines.join("\n")], { type: "text/plain" })
+      const a = document.createElement("a")
+      a.href = URL.createObjectURL(blob)
+      a.download = getFilename("txt")
+      a.click()
+      URL.revokeObjectURL(a.href)
     }
 
-    const newTransaction = { date, description, paidToFrom, amount, type }
-    await addDoc(collection(db, "transactions"), newTransaction)
-    e.target.reset()
-  })
-
-  document.querySelectorAll(".filter-btn").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      currentFilter = btn.dataset.filter
-      onSnapshot(collection(db, "transactions"), (snapshot) => {
+    document.getElementById("exportTxt").addEventListener("click", () => {
+      getDocs(collection(db, "transactions")).then(snapshot => {
         const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
-        renderTable(allTransactions)
+        exportTxt(allTransactions)
       })
     })
-  )
 
-  // Export TXT
-  function exportTxt(transactions) {
-    const lines = getFilteredTransactions(transactions).map(([_, t]) =>
-      `${t.date} | ${t.description} | ${t.paidToFrom} | ${t.type.toUpperCase()} | AED ${Number(t.amount).toFixed(2)}`
-    )
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" })
-    const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = getFilename("txt")
-    a.click()
-    URL.revokeObjectURL(a.href)
-  }
+    function exportExcel(transactions) {
+      const wsData = [["Date", "Description", "Paid To/From", "Type", "Amount (AED)"]]
+      getFilteredTransactions(transactions).forEach(([_, t]) => {
+        wsData.push([
+          t.date,
+          t.description,
+          t.paidToFrom,
+          t.type,
+          `AED ${Number(t.amount).toFixed(2)}`
+        ])
+      })
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      XLSX.utils.book_append_sheet(wb, ws, "Transactions")
+      XLSX.writeFile(wb, getFilename("xlsx"))
+    }
 
-  document.getElementById("exportTxt").addEventListener("click", () => {
-    getDocs(collection(db, "transactions")).then(snapshot => {
+    document.getElementById("exportExcel").addEventListener("click", () => {
+      getDocs(collection(db, "transactions")).then(snapshot => {
+        const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
+        exportExcel(allTransactions)
+      })
+    })
+
+    // Initial render
+    onSnapshot(collection(db, "transactions"), (snapshot) => {
       const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
-      exportTxt(allTransactions)
+      renderTable(allTransactions)
     })
   })
-
-  // Export Excel
-  function exportExcel(transactions) {
-    const wsData = [["Date", "Description", "Paid To/From", "Type", "Amount (AED)"]]
-    getFilteredTransactions(transactions).forEach(([_, t]) => {
-      wsData.push([
-        t.date,
-        t.description,
-        t.paidToFrom,
-        t.type,
-        `AED ${Number(t.amount).toFixed(2)}`
-      ])
-    })
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
-    XLSX.utils.book_append_sheet(wb, ws, "Transactions")
-    XLSX.writeFile(wb, getFilename("xlsx"))
-  }
-
-  document.getElementById("exportExcel").addEventListener("click", () => {
-    getDocs(collection(db, "transactions")).then(snapshot => {
-      const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
-      exportExcel(allTransactions)
-    })
-  })
-
-  // Real-time listener
-  onSnapshot(collection(db, "transactions"), (snapshot) => {
-    const allTransactions = snapshot.docs.map(doc => [doc.id, doc.data()])
-    renderTable(allTransactions)
-  })
-})
 </script>
 
 <!-- SheetJS -->
