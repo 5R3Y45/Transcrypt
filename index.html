@@ -91,6 +91,25 @@
 
 
   <script>
+
+// firebase.js
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "your-app.firebaseapp.com",
+  projectId: "your-app-id",
+  storageBucket: "your-app.appspot.com",
+  messagingSenderId: "SENDER_ID",
+  appId: "APP_ID"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+export { db, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot };
+
 // Required libraries: xlsx.full.min.js, docx.umd.min.js, html2pdf.bundle.min.js
 
 const transactions = JSON.parse(localStorage.getItem("transactions") || "[]")
